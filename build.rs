@@ -4,21 +4,46 @@ use embuild::build::LinkArgsBuilder;
 use embuild::cargo;
 use embuild::cmake::file_api::{ObjKind, Query};
 use embuild::cmake::Config;
+use std::{env, path::PathBuf};
+
+fn arm_toolchain_bin() -> PathBuf {
+    if let Some(path) = env::var_os("PICO_ARM_TOOLCHAIN_BIN") {
+        return path.into();
+    }
+
+    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(".tools/arm-gnu-toolchain/bin")
+}
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=WIFI_CONFIG");
+    println!("cargo:rerun-if-changed=c");
+
+    let toolchain_bin = arm_toolchain_bin();
+    let gcc = toolchain_bin.join("arm-none-eabi-gcc");
+    if !gcc.is_file() {
+        panic!(
+            "complete Arm GNU toolchain not found at {} (set PICO_ARM_TOOLCHAIN_BIN to its bin directory)",
+            toolchain_bin.display()
+        );
+    }
+
+    // Homebrew's compiler-only arm-none-eabi-gcc package has no Newlib. Put
+    // the complete local toolchain first for CMake's compiler discovery.
+    let path = env::join_paths(
+        std::iter::once(toolchain_bin.clone())
+            .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+    )
+    .unwrap();
+    env::set_var("PATH", path);
+
     let cmake_build_dir = cargo::out_dir().join("build");
 
     // Set CMake to output API files https://cmake.org/cmake/help/git-stage/manual/cmake-file-api.7.html
-    let query = Query::new(
-        &cmake_build_dir,
-        "cargo",
-        &[ObjKind::Codemodel],
-    )
-    .unwrap();
+    let query = Query::new(&cmake_build_dir, "cargo", &[ObjKind::Codemodel]).unwrap();
 
     // Build C part
     Config::new("c")
-        .target("thumbv6m-none-eabi")
+        .target("thumbv8m.main-none-eabi")
         .define("CMAKE_SYSTEM_NAME", "")
         .generator("Ninja")
         .build_target("exe")
@@ -37,7 +62,7 @@ fn main() {
     let link_args = LinkArgsBuilder::try_from(&link)
         .unwrap()
         .force_ldproxy(true)
-        .linker("arm-none-eabi-gcc")
+        .linker(gcc.to_str().unwrap())
         .working_directory(&cmake_build_dir)
         .build()
         .unwrap();

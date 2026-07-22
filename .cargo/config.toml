@@ -1,10 +1,13 @@
 [build]
-target = "./thumbv6m-none-espidf-eabi.json"
+target = "./thumbv8m_main-none-espidf-eabi.json"
 
-[target.thumbv6m-none-espidf-eabi]
-runner = "elf2uf2-rs -d -s"
+# Triple has no '.', so this table key matches cleanly (cargo derives the triple
+# name from the JSON file stem).
+[target.thumbv8m_main-none-espidf-eabi]
+runner = "picotool load -f -u -v -x -t elf"
 linker = "ldproxy"
 rustflags = ["-C", "default-linker-libraries=yes"]
 
 [unstable]
 build-std = ["std", "panic_abort"]
+json-target-spec = true

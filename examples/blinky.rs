@@ -1,27 +1,27 @@
-/// Make the built-in LED (connected to GPIO 25) on a Raspberry Pi Pico board blink at 1 Hz
-
-use std::{time::Duration, thread};
-use rp2040_hal as hal;
-use embedded_hal::digital::v2::OutputPin;
-use pico_std::peripherals;
+use embedded_hal::digital::OutputPin;
+use pico_std as _;
+use rp235x_hal as hal;
+/// Blink an LED on GPIO 25 at 1 Hz, using std threads for timing on top of the
+/// RP2350 std environment. Peripheral access is via rp235x-hal.
+use std::{thread, time::Duration}; // pulls in the startup glue (__wrap_main); always import.
 
 fn main() {
-    let mut peripherals = peripherals::Peripherals::take().unwrap();
-    let sio = peripherals::Sio::take().unwrap();
+    let mut pac = hal::pac::Peripherals::take().unwrap();
+    let sio = hal::Sio::new(pac.SIO);
     let pins = hal::gpio::Pins::new(
-        peripherals.IO_BANK0,
-        peripherals.PADS_BANK0,
+        pac.IO_BANK0,
+        pac.PADS_BANK0,
         sio.gpio_bank0,
-        &mut peripherals.RESETS
+        &mut pac.RESETS,
     );
 
-    let mut pin = pins.gpio25.into_push_pull_output();
+    let mut led = pins.gpio25.into_push_pull_output();
 
     loop {
-        pin.set_high().unwrap();
+        led.set_high().unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        pin.set_low().unwrap();
+        led.set_low().unwrap();
         thread::sleep(Duration::from_millis(500));
     }
 }
