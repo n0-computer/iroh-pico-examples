@@ -14,6 +14,18 @@ rp235x-hal = ["dep:rp235x-hal"]
 usb-smoke = []
 rtos-smoke = []
 wifi = []
+iroh = [
+    "wifi",
+    "dep:aes",
+    "dep:aes-gcm",
+    "dep:iroh",
+    "dep:iroh-tickets",
+    "dep:rustls",
+    "dep:rustls-rustcrypto",
+    "dep:tokio",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+]
 
 [dependencies]
 embedded-hal = "1"
@@ -21,6 +33,15 @@ embedded-hal = "1"
 # runtime — the Pico SDK provides crt0 and the vector table — so disable default
 # features and keep only the critical-section implementation.
 rp235x-hal = { version = "0.4", optional = true, default-features = false, features = ["critical-section-impl"] }
+aes = { version = "0.8", optional = true }
+aes-gcm = { version = "0.10", optional = true }
+iroh = { version = "1.0.2", optional = true, default-features = false }
+iroh-tickets = { version = "1.0.0", optional = true }
+rustls = { version = "0.23", optional = true, default-features = false }
+rustls-rustcrypto = { git = "https://github.com/n0-computer/rustls-rustcrypto", branch = "feature-flag-algorithms-v0.0.2", optional = true, default-features = false, features = ["std"] }
+tokio = { version = "1", optional = true, features = ["io-util", "rt", "time"] }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["fmt"] }
 
 [profile.dev]
 opt-level = "z"
@@ -49,3 +70,8 @@ crate-type = ["bin"]
 name = "wifi"
 crate-type = ["bin"]
 required-features = ["wifi"]
+
+[[example]]
+name = "iroh-echo"
+crate-type = ["bin"]
+required-features = ["iroh"]

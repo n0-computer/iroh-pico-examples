@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdint.h>
 #include "pico/cyw43_arch.h"
 #include "lwip/netif.h"
 #include "lwip/ip4_addr.h"
@@ -38,4 +39,13 @@ int presto_wifi_connect(const char *ssid, const char *password)
     printf("Wi-Fi connected; IPv4 address: %s\n", ip4addr_ntoa(address));
     stdio_flush();
     return 0;
+}
+
+void presto_wifi_ipv4_octets(uint8_t octets[4])
+{
+    const ip4_addr_t *address = netif_ip4_addr(netif_default);
+    octets[0] = ip4_addr1(address);
+    octets[1] = ip4_addr2(address);
+    octets[2] = ip4_addr3(address);
+    octets[3] = ip4_addr4(address);
 }

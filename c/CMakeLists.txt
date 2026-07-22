@@ -28,6 +28,19 @@ project(pico-std-rust C CXX ASM)
 
 pico_sdk_init()
 
+# The Pico CYW43/FreeRTOS convenience target assumes a freestanding C program
+# and asks lwIP to provide a Linux-numbered global `errno`. Rust's Newlib std
+# backend instead reads Newlib's task-local __errno(), whose error-number table
+# also differs. Make lwIP use Newlib's <errno.h> so socket failures are visible
+# to Rust with the correct values (especially EWOULDBLOCK on nonblocking I/O).
+get_target_property(PICO_CYW43_DEFINITIONS
+    pico_cyw43_arch_lwip_sys_freertos_headers INTERFACE_COMPILE_DEFINITIONS)
+if(PICO_CYW43_DEFINITIONS)
+    list(REMOVE_ITEM PICO_CYW43_DEFINITIONS LWIP_PROVIDE_ERRNO=1)
+    set_property(TARGET pico_cyw43_arch_lwip_sys_freertos_headers
+        PROPERTY INTERFACE_COMPILE_DEFINITIONS "${PICO_CYW43_DEFINITIONS}")
+endif()
+
 # Pull in FreeRTOS. This must come after pico_sdk_init() because the port links
 # against Pico SDK targets. It defines FreeRTOS-Kernel and FreeRTOS-Kernel-Heap4.
 set(FREERTOS_CONFIG_FILE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include)
@@ -37,6 +50,7 @@ include(FreeRTOS_Kernel_import.cmake)
 # The esp-idf std glue (pthread / locks / 64-bit atomics) plus small shims.
 add_library(pico-std-rust-c STATIC
     src/shim.c
+    src/platform.c
 
     esp-idf/src/pthread.c
     esp-idf/src/pthread_cond_var.c
@@ -61,6 +75,7 @@ target_compile_options(pico-std-rust-c PRIVATE
 )
 target_link_libraries(pico-std-rust-c PUBLIC
     pico_stdlib
+    pico_rand
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
 )
@@ -72,6 +87,7 @@ if(DEFINED ENV{CARGO_FEATURE_WIFI})
     target_compile_definitions(pico-std-rust-c PUBLIC
         NO_SYS=0
         LWIP_SOCKET=1
+        LWIP_ERRNO_STDINCLUDE=1
     )
 endif()
 target_compile_definitions(pico-std-rust-c PUBLIC
@@ -119,6 +135,14 @@ target_link_options(exe PRIVATE
     -Wl,-u,runtime_init_boot_locks_reset
     -Wl,-u,runtime_init_bootrom_locking_enable
 )
+if(DEFINED ENV{CARGO_FEATURE_IROH})
+    target_link_options(exe PRIVATE
+        -Wl,--wrap=read
+        -Wl,--wrap=write
+        -Wl,--wrap=close
+        -Wl,--wrap=fcntl
+    )
+endif()
 
 # Pure Pico SDK control image for separating board/USB bring-up from the custom
 # Rust/FreeRTOS final link. It is built alongside `exe`, but never flashed

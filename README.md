@@ -130,6 +130,26 @@ cargo run --release --example hello --features rtos-smoke
 The CMake build also produces a pure Pico SDK `presto_usb_control` image as a
 link/startup control. Cargo never flashes that image automatically.
 
+## Direct iroh echo server
+
+The `iroh-echo` example is a deliberately small LAN-only endpoint based on the
+no-PSRAM ESP32 example. Relay, discovery and QUIC datagrams are disabled, and
+the transport is limited to one bidirectional stream with small flow-control
+windows.
+
+```sh
+WIFI_CONFIG='SSID:PASSWORD' cargo run --release --example iroh-echo --features iroh
+```
+
+It prints the endpoint ID and UDP port after joining Wi-Fi. Connect using that
+ID, the IPv4 address printed by the Wi-Fi setup, and the port; a bare endpoint
+ID cannot be resolved because discovery is intentionally disabled.
+
+The Pico compatibility layer supplies the entropy, clock, `poll` and `eventfd`
+interfaces required by Rust `std`, Tokio and mio. Its eventfd integration polls
+lwIP in 10 ms slices; this is intentionally simple and prioritizes correctness
+and bring-up over high-throughput networking.
+
 ## Why this is unusual
 
 Rust does not ship a `std` target for the RP2350. This project builds `std` from
@@ -152,6 +172,8 @@ Working on a Pimoroni Presto:
 - sleeping through FreeRTOS; the pthread-backed `thread::spawn` example builds
   but still needs an on-device smoke test;
 - RM2/CYW43439 Wi-Fi association and DHCP;
+- a direct-only iroh QUIC echo server that builds without PSRAM (on-device
+  testing still required);
 - `cargo run --release` flashing through picotool.
 
 This remains a proof of concept, not a production-supported Rust target.

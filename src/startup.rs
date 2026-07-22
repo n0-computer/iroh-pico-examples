@@ -1,5 +1,10 @@
 use core::ffi::{c_char, c_int, c_void};
 
+#[cfg(feature = "iroh")]
+const MAIN_TASK_STACK_WORDS: u32 = 16_384; // 64 KiB
+#[cfg(not(feature = "iroh"))]
+const MAIN_TASK_STACK_WORDS: u32 = 4_096; // 16 KiB
+
 extern "C" {
     fn vTaskStartScheduler();
     fn xTaskCreate(
@@ -69,7 +74,7 @@ extern "C" fn __wrap_main() {
             xTaskCreate(
                 main_task_wrapper,
                 "main_task\0".as_ptr() as *const c_char,
-                4096,
+                MAIN_TASK_STACK_WORDS,
                 core::ptr::null_mut() as *mut c_void,
                 2,
                 core::ptr::null_mut(),
