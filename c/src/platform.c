@@ -23,6 +23,14 @@ struct dirent;
 #define CLOCK_MONOTONIC 4
 #endif
 
+static int64_t realtime_offset_us;
+
+void presto_set_unix_time(uint32_t seconds)
+{
+    int64_t offset = (int64_t)seconds * 1000000 - (int64_t)time_us_64();
+    __atomic_store_n(&realtime_offset_us, offset, __ATOMIC_RELEASE);
+}
+
 /* Compatibility symbols expected by Rust's espidf std backend. */
 void esp_fill_random(void *buffer, size_t length)
 {
@@ -58,6 +66,10 @@ int clock_gettime(clockid_t clock_id, struct timespec *value)
         return -1;
     }
     uint64_t micros = time_us_64();
+    if (clock_id == CLOCK_REALTIME) {
+        micros = (uint64_t)((int64_t)micros +
+            __atomic_load_n(&realtime_offset_us, __ATOMIC_ACQUIRE));
+    }
     value->tv_sec = (time_t)(micros / 1000000u);
     value->tv_nsec = (long)((micros % 1000000u) * 1000u);
     return 0;
@@ -136,7 +148,10 @@ int __wrap_fcntl(int fd, int command, ...)
 ssize_t __wrap_read(int fd, void *buffer, size_t length)
 {
     int index = eventfd_index(fd);
-    if (index < 0) return __real_read(fd, buffer, length);
+    if (index < 0) {
+        if (fd >= LWIP_SOCKET_OFFSET) return lwip_read(fd, buffer, length);
+        return __real_read(fd, buffer, length);
+    }
     if (length != sizeof(uint64_t)) {
         errno = EINVAL;
         return -1;
@@ -153,7 +168,10 @@ ssize_t __wrap_read(int fd, void *buffer, size_t length)
 ssize_t __wrap_write(int fd, const void *buffer, size_t length)
 {
     int index = eventfd_index(fd);
-    if (index < 0) return __real_write(fd, buffer, length);
+    if (index < 0) {
+        if (fd >= LWIP_SOCKET_OFFSET) return lwip_write(fd, buffer, length);
+        return __real_write(fd, buffer, length);
+    }
     if (length != sizeof(uint64_t)) {
         errno = EINVAL;
         return -1;
@@ -171,7 +189,10 @@ ssize_t __wrap_write(int fd, const void *buffer, size_t length)
 int __wrap_close(int fd)
 {
     int index = eventfd_index(fd);
-    if (index < 0) return __real_close(fd);
+    if (index < 0) {
+        if (fd >= LWIP_SOCKET_OFFSET) return lwip_close(fd);
+        return __real_close(fd);
+    }
     __atomic_store_n(&eventfds[index].value, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&eventfds[index].active, 0, __ATOMIC_RELEASE);
     return 0;

@@ -288,4 +288,3 @@ fn apply_header_mask(mask: &[u8; 5], first: &mut u8, packet_number: &mut [u8], m
         *b ^= m;
     }
 }
-

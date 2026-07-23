@@ -141,7 +141,8 @@ call flash-resident 64-bit division helpers while reconfiguring QMI.
 
 `psram-heap` additionally moves Newlib's heap—and therefore Rust `std`
 allocations—to PSRAM. FreeRTOS's Heap4 arena, task stacks and scheduler objects
-remain in internal SRAM:
+remain in internal SRAM. PSRAM-backed iroh builds expand Heap4 to 256 KiB and
+give the main task a 128 KiB stack for TLS/HTTPS processing:
 
 ```sh
 cargo run --release --example psram --features psram-heap

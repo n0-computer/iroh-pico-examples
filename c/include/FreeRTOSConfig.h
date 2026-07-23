@@ -46,7 +46,11 @@
 #define configSUPPORT_STATIC_ALLOCATION         1
 #define configKERNEL_PROVIDED_STATIC_MEMORY     1
 #define configSUPPORT_DYNAMIC_ALLOCATION        1
+#ifdef PICO_STD_PSRAM_HEAP
+#define configTOTAL_HEAP_SIZE                   (256*1024)
+#else
 #define configTOTAL_HEAP_SIZE                   (128*1024)
+#endif
 #define configAPPLICATION_ALLOCATED_HEAP        0
 
 /* Hook function related definitions. */

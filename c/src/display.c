@@ -2,8 +2,8 @@
  * Minimal ST7701 scanout for Pimoroni Presto.
  *
  * The panel initialization and PIO timing are derived from Pimoroni's
- * MIT-licensed Presto driver. This smoke test deliberately repeats one
- * 240-pixel RGB565 row, so it needs 480 bytes rather than a framebuffer.
+ * MIT-licensed Presto driver. The basic smoke test repeats one RGB565 row.
+ * PICO_STD_DISPLAY_PSRAM instead scans a full 480x480 framebuffer from PSRAM.
  */
 
 #include <stdbool.h>
@@ -66,7 +66,6 @@ static int line_dma;
 static uint16_t timing_row;
 static uint16_t timing_phase;
 static uint16_t display_row;
-static uint16_t *const framebuffer = (uint16_t *)PSRAM_BASE;
 static uint16_t *const dma_framebuffer = (uint16_t *)PSRAM_DMA_BASE;
 static uint16_t sram_control_line[LCD_WIDTH] __attribute__((aligned(4)));
 static uint16_t *volatile next_line_addr;
@@ -77,6 +76,15 @@ static volatile uint16_t psram_sample_first;
 static volatile uint16_t psram_sample_middle;
 static volatile uint16_t psram_sample_last;
 static uint32_t core1_stack[1024] __attribute__((aligned(8)));
+
+#ifdef PICO_STD_DISPLAY_PSRAM
+size_t presto_psram_size(void);
+int presto_psram_init_status(void);
+
+static uint16_t *frame_line(unsigned row) {
+    return dma_framebuffer + row * LCD_WIDTH;
+}
+#endif
 
 static void panel_command(uint8_t cmd, size_t len, const uint8_t *data) {
     uint16_t words[20];
@@ -164,9 +172,15 @@ static void panel_init(void) {
 static void __not_in_flash_func(start_line_transfer)(void) {
     hw_clear_bits(&display_pio->irq, 0x1);
     ++display_row;
+#ifdef PICO_STD_DISPLAY_PSRAM
+    next_line_addr = display_row == PANEL_HEIGHT
+        ? NULL
+        : frame_line(display_row);
+#else
     next_line_addr = display_row == PANEL_HEIGHT
         ? NULL
         : sram_control_line;
+#endif
 }
 
 static void __not_in_flash_func(start_frame_transfer)(void) {
@@ -180,8 +194,13 @@ static void __not_in_flash_func(start_frame_transfer)(void) {
     pio_sm_exec_wait_blocking(display_pio, parallel_sm, pio_encode_jmp(parallel_offset));
     pio_sm_set_enabled(display_pio, parallel_sm, true);
     display_row = 0;
+#ifdef PICO_STD_DISPLAY_PSRAM
+    next_line_addr = frame_line(0);
+    dma_channel_set_read_addr(pixel_dma, frame_line(0), true);
+#else
     next_line_addr = sram_control_line;
     dma_channel_set_read_addr(pixel_dma, sram_control_line, true);
+#endif
 }
 
 static void __isr __not_in_flash_func(line_isr)(void) {
@@ -229,10 +248,25 @@ static void fill_test_pattern(void) {
     static const uint16_t colours[] = {
         0xf800, 0xffe0, 0x07e0, 0x07ff, 0x001f, 0xf81f, 0xffff, 0x0000
     };
+#ifdef PICO_STD_DISPLAY_PSRAM
+    for (unsigned y = 0; y < PANEL_HEIGHT; ++y) {
+        for (unsigned x = 0; x < LCD_WIDTH; ++x) {
+            uint16_t colour = colours[x / (LCD_WIDTH / 8u)];
+            /* Horizontal black lines prove that DMA is advancing through a
+             * full framebuffer rather than repeating one scanline. */
+            if (y % 60u == 0) colour = 0;
+            dma_framebuffer[y * LCD_WIDTH + x] = colour;
+        }
+    }
+    psram_sample_first = dma_framebuffer[0];
+    psram_sample_middle =
+        dma_framebuffer[(PANEL_HEIGHT / 2u + 1u) * LCD_WIDTH + LCD_WIDTH / 2u];
+    psram_sample_last = dma_framebuffer[LCD_WIDTH * PANEL_HEIGHT - 1u];
+#else
     for (unsigned x = 0; x < LCD_WIDTH; ++x) {
         sram_control_line[x] = colours[x / (LCD_WIDTH / 8u)];
     }
-
+#endif
 }
 
 static void display_core1(void) {
@@ -267,9 +301,13 @@ static void display_core1(void) {
 
     uint32_t divider = (clock_get_hz(clk_sys) + 34000000u - 1u) / 34000000u;
     // A full-resolution RGB565 scanout consumes two PSRAM bytes per pixel.
-    // Keep refresh near 63 Hz at Presto's official 200 MHz clock (or 47 Hz at
-    // the SDK's default 150 MHz), leaving QMI bandwidth for flash accesses.
+    // Run the PSRAM variant near 47 Hz at Presto's 200 MHz clock to leave QMI
+    // and DMA more margin. The repeated-SRAM-row variant can remain near 63 Hz.
+#ifdef PICO_STD_DISPLAY_PSRAM
+    if (divider < 16u) divider = 16u;
+#else
     if (divider < 12u) divider = 12u;
+#endif
     if (divider & 1u) ++divider;
     pio_sm_config config = st7701_parallel_program_get_default_config(parallel_offset);
     sm_config_set_out_pins(&config, LCD_D0, 16);
@@ -326,9 +364,27 @@ static void display_core1(void) {
 int presto_display_start_test_pattern(void) {
     if (display_status != 0) return display_status > 0 ? 0 : display_status;
     display_status = -1;
+#ifdef PICO_STD_DISPLAY_PSRAM
+    detected_psram_size = presto_psram_size();
+    int psram_status = presto_psram_init_status();
+    if (psram_status <= 0 || detected_psram_size < FRAMEBUFFER_BYTES) {
+        printf("Display: PSRAM unavailable (status=%d size=%lu)\n",
+               psram_status, (unsigned long)detected_psram_size);
+        display_status = -2;
+        return display_status;
+    }
+#endif
     multicore_reset_core1();
     multicore_launch_core1_with_stack(display_core1, core1_stack, sizeof(core1_stack));
     while (display_status == -1) __wfe();
+#ifdef PICO_STD_DISPLAY_PSRAM
+    printf("Display: %lu-byte framebuffer in %lu-byte PSRAM"
+           " (samples=%04x,%04x,%04x)\n",
+           (unsigned long)FRAMEBUFFER_BYTES,
+           (unsigned long)detected_psram_size,
+           psram_sample_first, psram_sample_middle, psram_sample_last);
+#else
     printf("Display: no PSRAM; full-resolution timing from an SRAM scanline\n");
+#endif
     return display_status > 0 ? 0 : display_status;
 }

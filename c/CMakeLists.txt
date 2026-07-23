@@ -72,6 +72,10 @@ if(DEFINED ENV{CARGO_FEATURE_DISPLAY})
     pico_generate_pio_header(pico-std-rust-c
         ${CMAKE_CURRENT_LIST_DIR}/src/st7701_timing.pio)
 endif()
+if(DEFINED ENV{CARGO_FEATURE_DISPLAY_PSRAM})
+    target_compile_definitions(pico-std-rust-c PRIVATE
+        PICO_STD_DISPLAY_PSRAM=1)
+endif()
 if(DEFINED ENV{CARGO_FEATURE_PSRAM})
     target_sources(pico-std-rust-c PRIVATE src/psram.c)
 endif()
@@ -104,6 +108,7 @@ endif()
 if(DEFINED ENV{CARGO_FEATURE_WIFI})
     target_link_libraries(pico-std-rust-c PUBLIC
         pico_cyw43_arch_lwip_sys_freertos
+        pico_lwip_sntp
     )
     target_compile_definitions(pico-std-rust-c PUBLIC
         PICO_STD_WIFI=1
@@ -122,9 +127,9 @@ target_compile_definitions(pico-std-rust-c PUBLIC
     CONFIG_PTHREAD_TASK_NAME_DEFAULT="task"
 )
 if(DEFINED ENV{CARGO_FEATURE_PSRAM_HEAP})
-    target_compile_definitions(pico-std-rust-c PUBLIC
-        PICO_STD_PSRAM_HEAP=1
-    )
+    # This must reach the FreeRTOS kernel sources as well as our support
+    # library because FreeRTOSConfig.h sizes the internal Heap4 arena from it.
+    add_compile_definitions(PICO_STD_PSRAM_HEAP=1)
 endif()
 
 # Enable stdio drivers specified by cargo features

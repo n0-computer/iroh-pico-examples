@@ -1,6 +1,8 @@
 use core::ffi::{c_char, c_int, c_void};
 
-#[cfg(feature = "iroh")]
+#[cfg(all(feature = "iroh", feature = "psram-heap"))]
+const MAIN_TASK_STACK_WORDS: u32 = 32_768; // 128 KiB
+#[cfg(all(feature = "iroh", not(feature = "psram-heap")))]
 const MAIN_TASK_STACK_WORDS: u32 = 16_384; // 64 KiB
 #[cfg(not(feature = "iroh"))]
 const MAIN_TASK_STACK_WORDS: u32 = 4_096; // 16 KiB

@@ -15,6 +15,7 @@ usb-smoke = []
 rtos-smoke = []
 wifi = []
 display = []
+display-psram = ["display", "psram"]
 psram = []
 psram-heap = ["psram"]
 iroh = [
@@ -22,7 +23,10 @@ iroh = [
     "dep:aes",
     "dep:aes-gcm",
     "dep:iroh",
+    "dep:iroh-relay",
     "dep:iroh-tickets",
+    "dep:n0-error",
+    "dep:n0-future",
     "dep:rustls",
     "dep:rustls-rustcrypto",
     "dep:tokio",
@@ -30,7 +34,11 @@ iroh = [
     "dep:tracing-subscriber",
 ]
 iroh-psram = ["iroh", "psram-heap"]
-iroh-full = ["iroh", "psram-heap"]
+iroh-full = [
+    "iroh",
+    "psram-heap",
+    "rustls-rustcrypto/p256",
+]
 
 [dependencies]
 embedded-hal = "1"
@@ -41,7 +49,10 @@ rp235x-hal = { version = "0.4", optional = true, default-features = false, featu
 aes = { version = "0.8", optional = true }
 aes-gcm = { version = "0.10", optional = true }
 iroh = { version = "1.0.2", optional = true, default-features = false }
+iroh-relay = { version = "1.0.2", optional = true, default-features = false }
 iroh-tickets = { version = "1.0.0", optional = true }
+n0-error = { version = "1", optional = true }
+n0-future = { version = "0.3", optional = true }
 rustls = { version = "0.23", optional = true, default-features = false }
 rustls-rustcrypto = { git = "https://github.com/n0-computer/rustls-rustcrypto", branch = "feature-flag-algorithms-v0.0.2", optional = true, default-features = false, features = ["std"] }
 tokio = { version = "1", optional = true, features = ["io-util", "rt", "time"] }
@@ -95,6 +106,11 @@ required-features = ["iroh-psram"]
 name = "display"
 crate-type = ["bin"]
 required-features = ["display"]
+
+[[example]]
+name = "display-psram"
+crate-type = ["bin"]
+required-features = ["display-psram"]
 
 [[example]]
 name = "psram"

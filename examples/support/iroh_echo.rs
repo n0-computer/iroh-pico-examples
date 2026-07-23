@@ -1,6 +1,13 @@
-use std::{ffi::CString, net::Ipv4Addr, sync::Arc, thread, time::Duration};
+use std::{
+    ffi::CString,
+    net::Ipv4Addr,
+    sync::Arc,
+    thread,
+    time::Duration,
+};
 
 use iroh::endpoint::{presets, PortmapperConfig, QuicTransportConfig, VarInt};
+use iroh::tls::CaTlsConfig;
 use iroh_tickets::endpoint::EndpointTicket;
 use pico_std as _;
 use tracing::Level;
@@ -8,6 +15,8 @@ use tracing_subscriber::{filter::Targets, prelude::*};
 
 #[path = "../quic_crypto_provider.rs"]
 mod quic_crypto_provider;
+mod insecure_verifier;
+mod std_dns_resolver;
 
 const ECHO_ALPN: &[u8] = b"echo/0";
 const WIFI_CONFIG: &str = match option_env!("WIFI_CONFIG") {
@@ -20,6 +29,7 @@ extern "C" {
         ssid: *const core::ffi::c_char,
         password: *const core::ffi::c_char,
     ) -> core::ffi::c_int;
+    fn presto_time_sync() -> core::ffi::c_int;
     fn presto_wifi_ipv4_octets(octets: *mut u8);
     fn presto_memory_report(label: *const core::ffi::c_char);
 }
@@ -58,6 +68,10 @@ pub fn main(relay: bool) {
     }
 
     connect_wifi();
+    if relay {
+        let result = unsafe { presto_time_sync() };
+        assert_eq!(result, 0, "wall-clock synchronization failed");
+    }
     init_tracing();
     println!(
         "Starting {} iroh echo endpoint",
@@ -66,22 +80,15 @@ pub fn main(relay: bool) {
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
+        .max_blocking_threads(1)
+        .thread_stack_size(16 * 1024)
         .build()
         .expect("failed to create Tokio runtime");
     runtime.block_on(run(relay));
 }
 
 fn init_tracing() {
-    let targets = Targets::new()
-        .with_default(Level::INFO)
-        .with_target("iroh", Level::TRACE)
-        .with_target("noq", Level::TRACE)
-        .with_target("noq_proto", Level::TRACE)
-        .with_target("noq_udp", Level::TRACE)
-        .with_target("netwatch", Level::TRACE)
-        .with_target("mio", Level::TRACE)
-        .with_target("tokio", Level::TRACE)
-        .with_target("rustls", Level::TRACE);
+    let targets = Targets::new().with_default(Level::INFO);
 
     tracing_subscriber::registry()
         .with(
@@ -109,10 +116,17 @@ async fn run(relay: bool) {
         .crypto_provider(Arc::new(quic_crypto_provider::provider()))
         .portmapper_config(PortmapperConfig::Disabled);
     if relay {
+        let dns_resolver =
+            iroh::dns::DnsResolver::custom(std_dns_resolver::StdDnsResolver);
         builder = builder
+            .ca_tls_config(CaTlsConfig::custom_server_cert_verifier(
+                insecure_verifier::skip_verify(),
+            ))
+            .dns_resolver(dns_resolver)
             .relay_mode(iroh::RelayMode::Default)
+            .net_report_config(iroh::NetReportConfig::minimal())
             .address_lookup(iroh::address_lookup::PkarrPublisher::n0_dns())
-            .address_lookup(iroh::address_lookup::DnsAddressLookup::n0_dns());
+            .address_lookup(iroh::address_lookup::PkarrResolver::n0_dns());
     } else {
         builder = builder
             .transport_config(transport)
@@ -135,20 +149,36 @@ async fn run(relay: bool) {
     let wifi_ip = Ipv4Addr::from(ip_octets);
 
     let short_ticket = EndpointTicket::new(iroh::EndpointAddr::new(endpoint_id));
-    let mut addr_with_ip = endpoint.addr();
-    addr_with_ip
+    let mut local_addr = endpoint.addr();
+    local_addr
         .addrs
         .insert(iroh::TransportAddr::Ip((wifi_ip, port).into()));
-    let long_ticket = EndpointTicket::new(addr_with_ip);
+    let local_long_ticket = EndpointTicket::new(local_addr);
 
     println!("Iroh endpoint ID: {endpoint_id}");
     println!("Listening on: {wifi_ip}:{port}");
     println!("Short ticket: {short_ticket}");
-    println!("Long ticket:  {long_ticket}");
+    println!("Local long ticket: {local_long_ticket}");
     if relay {
+        println!("Waiting for relay registration");
+        let relay_endpoint = endpoint.clone();
+        tokio::spawn(async move {
+            relay_endpoint.online().await;
+
+            let mut relay_addr = relay_endpoint.addr();
+            relay_addr
+                .addrs
+                .insert(iroh::TransportAddr::Ip((wifi_ip, port).into()));
+            let relay_long_ticket = EndpointTicket::new(relay_addr);
+
+            println!("Relay registration complete");
+            println!("Relay long ticket: {relay_long_ticket}");
+        });
         println!("Default relay and n0 DNS discovery are enabled");
     } else {
-        println!("Relay and discovery are disabled; use the long ticket for a direct connection");
+        println!(
+            "Relay and discovery are disabled; use the local long ticket for a direct connection"
+        );
     }
     memory_report(c"endpoint-bound");
 

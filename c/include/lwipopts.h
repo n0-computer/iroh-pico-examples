@@ -1,14 +1,26 @@
 #ifndef PICO_STD_LWIPOPTS_H
 #define PICO_STD_LWIPOPTS_H
 
+#include <stdint.h>
+
+void presto_set_unix_time(uint32_t seconds);
+
 /* Small FreeRTOS/lwIP configuration based on Raspberry Pi's
  * pico-examples/pico_w/wifi/freertos examples. */
 #define NO_SYS                          0
 #define LWIP_SOCKET                     1
 #define LWIP_NETCONN                    0
+/* Keep lwIP descriptors clear of Newlib's stdin/stdout/stderr descriptors.
+ * Rust's TCP stream implementation uses POSIX read/write rather than
+ * lwip_send/lwip_recv, so platform.c dispatches descriptors >= this offset
+ * back into lwIP. */
+#define LWIP_SOCKET_OFFSET              3
 #define MEM_LIBC_MALLOC                 0
 #define MEM_ALIGNMENT                   4
 #define MEM_SIZE                        8000
+#define MEMP_NUM_NETCONN                12
+#define MEMP_NUM_TCP_PCB                12
+#define MEMP_NUM_TCPIP_MSG_API          16
 #define MEMP_NUM_TCP_SEG                32
 #define MEMP_NUM_ARP_QUEUE              10
 #define PBUF_POOL_SIZE                  24
@@ -28,6 +40,8 @@
 #define LWIP_TCP                        1
 #define LWIP_UDP                        1
 #define LWIP_DNS                        1
+#define SNTP_SERVER_DNS                 1
+#define SNTP_SET_SYSTEM_TIME(sec)       presto_set_unix_time((uint32_t)(sec))
 #define LWIP_TCP_KEEPALIVE              1
 #define LWIP_NETIF_TX_SINGLE_PBUF       1
 #define DHCP_DOES_ARP_CHECK             0

@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 #include "pico/cyw43_arch.h"
+#include "lwip/apps/sntp.h"
 #include "lwip/netif.h"
 #include "lwip/ip4_addr.h"
 
@@ -49,6 +51,41 @@ int presto_wifi_connect(const char *ssid, const char *password)
     printf("Wi-Fi connected; IPv4 address: %s\n", ip4addr_ntoa(address));
     stdio_flush();
     return 0;
+}
+
+int presto_time_sync(void)
+{
+    printf("Synchronizing wall clock with SNTP...\n");
+    stdio_flush();
+    ip_addr_t ntp_server;
+    if (!ipaddr_aton("162.159.200.1", &ntp_server)) {
+        printf("Invalid built-in NTP server address\n");
+        stdio_flush();
+        return -1;
+    }
+    cyw43_arch_lwip_begin();
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_setserver(0, &ntp_server);
+    sntp_init();
+    cyw43_arch_lwip_end();
+
+    struct timespec now;
+    for (int attempt = 0; attempt < 300; ++attempt) {
+        clock_gettime(CLOCK_REALTIME, &now);
+        if (now.tv_sec >= 1577836800) {
+            cyw43_arch_lwip_begin();
+            sntp_stop();
+            cyw43_arch_lwip_end();
+            printf("Wall clock synchronized: Unix %lld\n", (long long)now.tv_sec);
+            stdio_flush();
+            return 0;
+        }
+        sleep_ms(100);
+    }
+
+    printf("SNTP synchronization timed out\n");
+    stdio_flush();
+    return -1;
 }
 
 void presto_wifi_ipv4_octets(uint8_t octets[4])
