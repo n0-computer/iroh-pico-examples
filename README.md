@@ -10,8 +10,20 @@ Presto. It combines:
 - lwIP for Wi-Fi networking.
 
 The currently tested configuration runs FreeRTOS on ARM core 0. Core 1 is not
-started by the scheduler and remains available for future explicit multicore
-work.
+started by the scheduler; the display examples use it explicitly for scanout.
+
+## Repository layout
+
+- The repository root is a virtual Cargo workspace.
+- `pico-std` is the platform crate. Its `examples/` directory contains
+  focused hardware and runtime tests.
+- `iroh-echo-common` contains the shared iroh echo application logic.
+- `iroh-echo`, `iroh-echo-psram`, and `iroh-echo-full` are independent
+  application crates.
+
+The application crates depend on `pico-std` like a normal native platform
+dependency. A small application build script forwards the Pico SDK linker
+configuration exported by `pico-std`.
 
 ## Host prerequisites
 
@@ -49,7 +61,7 @@ Alternatively, keep it elsewhere and provide its `bin` directory for every
 Cargo invocation:
 
 ```sh
-PICO_ARM_TOOLCHAIN_BIN=/absolute/path/to/bin cargo build --release --example hello
+PICO_ARM_TOOLCHAIN_BIN=/absolute/path/to/bin cargo build --release -p pico-std --example hello
 ```
 
 The complete toolchain occupies roughly 1 GB. `.tools/` is ignored by Git.
@@ -78,7 +90,7 @@ firmware. Its submodules include TinyUSB, lwIP and the CYW43 driver.
 The Cargo runner uses `picotool`, so a normal release build and flash is:
 
 ```sh
-cargo run --release --example hello
+cargo run --release -p pico-std --example hello
 ```
 
 On the first flash, place the Presto in BOOTSEL mode manually. Subsequent
@@ -104,7 +116,7 @@ prints its DHCP address. Credentials follow the same build-time environment
 pattern used by the ESP32 examples:
 
 ```sh
-WIFI_CONFIG='SSID:PASSWORD' cargo run --release --example wifi --features wifi
+WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p pico-std --example wifi --features wifi
 ```
 
 `WIFI_CONFIG` is embedded in the firmware image. It is not written to this
@@ -118,19 +130,26 @@ The display example initializes Presto's 480x480 ST7701 panel and shows eight
 vertical colour bars:
 
 ```sh
-cargo run --release --example display --features display
+cargo run --release -p pico-std --example display --features display
 ```
 
 The panel has no useful onboard framebuffer and must receive a continuous RGB
 scanout. This known-working control uses no PSRAM: core 1 repeats one
 480-pixel RGB565 row from internal SRAM while FreeRTOS/std remains on core 0.
 
+The separate full-frame test initializes PSRAM before Rust and scans a
+480x480 RGB565 framebuffer from it:
+
+```sh
+cargo run --release -p pico-std --example display-psram --features display-psram
+```
+
 ## PSRAM probe
 
 PSRAM bring-up is isolated from the display and all other examples:
 
 ```sh
-cargo run --release --example psram --features psram
+cargo run --release -p pico-std --example psram --features psram
 ```
 
 It initializes the 8 MiB QMI PSRAM before USB and FreeRTOS, checks ordinary
@@ -145,7 +164,7 @@ remain in internal SRAM. PSRAM-backed iroh builds expand Heap4 to 256 KiB and
 give the main task a 128 KiB stack for TLS/HTTPS processing:
 
 ```sh
-cargo run --release --example psram --features psram-heap
+cargo run --release -p pico-std --example psram --features psram-heap
 ```
 
 ## Diagnostics
@@ -154,8 +173,8 @@ Two feature-gated probes are retained because failures before USB enumeration
 otherwise look identical:
 
 ```sh
-cargo run --release --example hello --features usb-smoke
-cargo run --release --example hello --features rtos-smoke
+cargo run --release -p pico-std --example hello --features usb-smoke
+cargo run --release -p pico-std --example hello --features rtos-smoke
 ```
 
 - `usb-smoke` initializes USB and loops without starting FreeRTOS.
@@ -171,7 +190,7 @@ QMI PSRAM, and checks the first, middle and last words. Build it through Cargo,
 then find and flash the generated image:
 
 ```sh
-cargo build --release --example psram --features psram
+cargo build --release -p pico-std --example psram --features psram
 find target -name presto_psram_control.uf2
 picotool load -f /path/printed/by/find/presto_psram_control.uf2
 picotool reboot
@@ -180,38 +199,35 @@ picotool reboot
 The probe also enables UART0 on GPIO 0/1 at 115200 baud as a fallback if USB
 stops during PSRAM initialization.
 
-## Direct iroh echo server
+## Iroh applications
 
-The `iroh-echo` example is a deliberately small LAN-only endpoint based on the
-no-PSRAM ESP32 example. Relay, discovery and QUIC datagrams are disabled, and
-the transport is limited to one bidirectional stream with small flow-control
-windows.
+`iroh-echo` is a deliberately small LAN-only application. Relay, discovery and
+QUIC datagrams are disabled, and the transport is limited to one bidirectional
+stream with small flow-control windows.
 
 ```sh
-WIFI_CONFIG='SSID:PASSWORD' cargo run --release --example iroh-echo --features iroh
+WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p iroh-echo
 ```
 
 It prints the endpoint ID and UDP port after joining Wi-Fi. Connect using that
 ID, the IPv4 address printed by the Wi-Fi setup, and the port; a bare endpoint
 ID cannot be resolved because discovery is intentionally disabled.
 
-The separate full example enables the default iroh relay and n0 DNS discovery,
+The full application enables the default iroh relays and n0 DNS discovery,
 and uses PSRAM for the Rust/Newlib heap:
 
 ```sh
-WIFI_CONFIG='SSID:PASSWORD' cargo run --release \
-  --example iroh-echo-full --features iroh-full
+WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p iroh-echo-full
 ```
 
-The original `iroh-echo` example remains direct-only and does not enable or
+The `iroh-echo` application remains direct-only and does not enable or
 require PSRAM.
 
 To isolate the larger heap from relay behavior, this variant keeps relay and
 discovery disabled while moving the Rust/Newlib heap to PSRAM:
 
 ```sh
-WIFI_CONFIG='SSID:PASSWORD' cargo run --release \
-  --example iroh-echo-psram --features iroh-psram
+WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p iroh-echo-psram
 ```
 
 The Pico compatibility layer supplies the entropy, clock, `poll` and `eventfd`
@@ -241,9 +257,8 @@ Working on a Pimoroni Presto:
 - sleeping through FreeRTOS; the pthread-backed `thread::spawn` example builds
   but still needs an on-device smoke test;
 - RM2/CYW43439 Wi-Fi association and DHCP;
-- an ST7701 colour-bar scanout that builds and awaits on-device testing;
-- a direct-only iroh QUIC echo server that builds without PSRAM (on-device
-  testing still required);
+- ST7701 scanout from either a repeated SRAM row or a full PSRAM framebuffer;
+- direct and relay-enabled iroh QUIC echo applications;
 - `cargo run --release` flashing through picotool.
 
 This remains a proof of concept, not a production-supported Rust target.

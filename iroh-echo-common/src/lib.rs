@@ -7,15 +7,17 @@ use std::{
 };
 
 use iroh::endpoint::{presets, PortmapperConfig, QuicTransportConfig, VarInt};
+#[cfg(feature = "relay")]
 use iroh::tls::CaTlsConfig;
 use iroh_tickets::endpoint::EndpointTicket;
 use pico_std as _;
 use tracing::Level;
 use tracing_subscriber::{filter::Targets, prelude::*};
 
-#[path = "../quic_crypto_provider.rs"]
 mod quic_crypto_provider;
+#[cfg(feature = "relay")]
 mod insecure_verifier;
+#[cfg(feature = "relay")]
 mod std_dns_resolver;
 
 const ECHO_ALPN: &[u8] = b"echo/0";
@@ -29,6 +31,7 @@ extern "C" {
         ssid: *const core::ffi::c_char,
         password: *const core::ffi::c_char,
     ) -> core::ffi::c_int;
+    #[cfg(feature = "relay")]
     fn presto_time_sync() -> core::ffi::c_int;
     fn presto_wifi_ipv4_octets(octets: *mut u8);
     fn presto_memory_report(label: *const core::ffi::c_char);
@@ -48,8 +51,14 @@ fn connect_wifi() {
     assert_eq!(result, 0, "Wi-Fi connection failed with code {result}");
 }
 
-pub fn main(relay: bool) {
-    if cfg!(feature = "psram-heap") {
+#[derive(Clone, Copy)]
+pub struct Config {
+    pub relay: bool,
+    pub psram_heap: bool,
+}
+
+pub fn main(config: Config) {
+    if config.psram_heap {
         let heap_probe = vec![0xa5u8; 64 * 1024];
         let address = heap_probe.as_ptr() as usize;
         assert!(
@@ -68,14 +77,23 @@ pub fn main(relay: bool) {
     }
 
     connect_wifi();
-    if relay {
-        let result = unsafe { presto_time_sync() };
-        assert_eq!(result, 0, "wall-clock synchronization failed");
+    if config.relay {
+        #[cfg(not(feature = "relay"))]
+        panic!("relay support was not compiled into iroh-echo-common");
+        #[cfg(feature = "relay")]
+        {
+            let result = unsafe { presto_time_sync() };
+            assert_eq!(result, 0, "wall-clock synchronization failed");
+        }
     }
     init_tracing();
     println!(
         "Starting {} iroh echo endpoint",
-        if relay { "full relay-enabled" } else { "direct-only" }
+        if config.relay {
+            "full relay-enabled"
+        } else {
+            "direct-only"
+        }
     );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -84,7 +102,7 @@ pub fn main(relay: bool) {
         .thread_stack_size(16 * 1024)
         .build()
         .expect("failed to create Tokio runtime");
-    runtime.block_on(run(relay));
+    runtime.block_on(run(config.relay));
 }
 
 fn init_tracing() {
@@ -116,17 +134,22 @@ async fn run(relay: bool) {
         .crypto_provider(Arc::new(quic_crypto_provider::provider()))
         .portmapper_config(PortmapperConfig::Disabled);
     if relay {
-        let dns_resolver =
-            iroh::dns::DnsResolver::custom(std_dns_resolver::StdDnsResolver);
-        builder = builder
-            .ca_tls_config(CaTlsConfig::custom_server_cert_verifier(
-                insecure_verifier::skip_verify(),
-            ))
-            .dns_resolver(dns_resolver)
-            .relay_mode(iroh::RelayMode::Default)
-            .net_report_config(iroh::NetReportConfig::minimal())
-            .address_lookup(iroh::address_lookup::PkarrPublisher::n0_dns())
-            .address_lookup(iroh::address_lookup::PkarrResolver::n0_dns());
+        #[cfg(feature = "relay")]
+        {
+            let dns_resolver =
+                iroh::dns::DnsResolver::custom(std_dns_resolver::StdDnsResolver);
+            builder = builder
+                .ca_tls_config(CaTlsConfig::custom_server_cert_verifier(
+                    insecure_verifier::skip_verify(),
+                ))
+                .dns_resolver(dns_resolver)
+                .relay_mode(iroh::RelayMode::Default)
+                .net_report_config(iroh::NetReportConfig::minimal())
+                .address_lookup(iroh::address_lookup::PkarrPublisher::n0_dns())
+                .address_lookup(iroh::address_lookup::PkarrResolver::n0_dns());
+        }
+        #[cfg(not(feature = "relay"))]
+        unreachable!("relay support checked before starting the runtime");
     } else {
         builder = builder
             .transport_config(transport)
@@ -183,7 +206,10 @@ async fn run(relay: bool) {
     memory_report(c"endpoint-bound");
 
     while let Some(incoming) = endpoint.accept().await {
-        println!("Incoming QUIC attempt from {:?}; probing Initial decryption", incoming.remote_addr());
+        println!(
+            "Incoming QUIC attempt from {:?}; probing Initial decryption",
+            incoming.remote_addr()
+        );
         let decrypted = incoming.decrypt();
         println!(
             "Initial decryption probe {}",

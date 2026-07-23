@@ -1896,6 +1896,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroh-echo"
+version = "0.1.0"
+dependencies = [
+ "embuild",
+ "iroh-echo-common",
+ "pico-std",
+]
+
+[[package]]
+name = "iroh-echo-common"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "iroh",
+ "iroh-relay",
+ "iroh-tickets",
+ "n0-error",
+ "n0-future",
+ "pico-std",
+ "rustls",
+ "rustls-rustcrypto",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "iroh-echo-full"
+version = "0.1.0"
+dependencies = [
+ "embuild",
+ "iroh-echo-common",
+ "pico-std",
+]
+
+[[package]]
+name = "iroh-echo-psram"
+version = "0.1.0"
+dependencies = [
+ "embuild",
+ "iroh-echo-common",
+ "pico-std",
+]
+
+[[package]]
 name = "iroh-metrics"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2816,22 +2862,10 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 name = "pico-std"
 version = "0.1.0"
 dependencies = [
- "aes",
- "aes-gcm",
  "cmake",
  "embedded-hal 1.0.0",
  "embuild",
- "iroh",
- "iroh-relay",
- "iroh-tickets",
- "n0-error",
- "n0-future",
  "rp235x-hal",
- "rustls",
- "rustls-rustcrypto",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

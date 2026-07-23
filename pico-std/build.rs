@@ -11,7 +11,8 @@ fn arm_toolchain_bin() -> PathBuf {
         return path.into();
     }
 
-    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(".tools/arm-gnu-toolchain/bin")
+    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join("../.tools/arm-gnu-toolchain/bin")
 }
 
 fn main() {
@@ -59,15 +60,16 @@ fn main() {
         .unwrap();
     let link = exe_target.link.unwrap();
 
-    let link_args = LinkArgsBuilder::try_from(&link)
-        .unwrap()
+    let mut link_args_builder = LinkArgsBuilder::try_from(&link).unwrap();
+    link_args_builder
+        .linkflags
+        .push("-Wl,--wrap=main".to_owned());
+    let link_args = link_args_builder
         .force_ldproxy(true)
         .linker(gcc.to_str().unwrap())
         .working_directory(&cmake_build_dir)
         .build()
         .unwrap();
     link_args.output();
-
-    // Wrap main function with initialization routine
-    println!("cargo:rustc-link-arg=-Wl,--wrap=main");
+    link_args.propagate();
 }

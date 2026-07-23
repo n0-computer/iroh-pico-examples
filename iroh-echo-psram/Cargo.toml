@@ -1,0 +1,18 @@
+[package]
+name = "iroh-echo-psram"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "../iroh-app-build.rs"
+
+[dependencies]
+iroh-echo-common = { path = "../iroh-echo-common" }
+pico-std = { path = "../pico-std", default-features = false, features = [
+    "app-stack-128k",
+    "psram-heap",
+    "stdio-usb",
+    "wifi",
+] }
+
+[build-dependencies]
+embuild = "0.31.1"

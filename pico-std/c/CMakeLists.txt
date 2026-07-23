@@ -18,7 +18,7 @@ set(PICO_CYW43_SUPPORTED 1)
 
 # Reuse the project-local, ignored dependency cache for all Cargo profiles and
 # feature combinations. This avoids one SDK checkout per build-script hash.
-get_filename_component(PICO_STD_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../.tools" ABSOLUTE)
+get_filename_component(PICO_STD_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.tools" ABSOLUTE)
 set(PICO_SDK_PATH "${PICO_STD_TOOLS_DIR}/pico-sdk-presto")
 include(pico_sdk_import.cmake)
 
@@ -167,7 +167,7 @@ target_link_options(exe PRIVATE
     -Wl,-u,runtime_init_boot_locks_reset
     -Wl,-u,runtime_init_bootrom_locking_enable
 )
-if(DEFINED ENV{CARGO_FEATURE_IROH})
+if(DEFINED ENV{CARGO_FEATURE_WIFI})
     target_link_options(exe PRIVATE
         -Wl,--wrap=read
         -Wl,--wrap=write

@@ -1,10 +1,10 @@
 use core::ffi::{c_char, c_int, c_void};
 
-#[cfg(all(feature = "iroh", feature = "psram-heap"))]
+#[cfg(feature = "app-stack-128k")]
 const MAIN_TASK_STACK_WORDS: u32 = 32_768; // 128 KiB
-#[cfg(all(feature = "iroh", not(feature = "psram-heap")))]
+#[cfg(all(feature = "app-stack-64k", not(feature = "app-stack-128k")))]
 const MAIN_TASK_STACK_WORDS: u32 = 16_384; // 64 KiB
-#[cfg(not(feature = "iroh"))]
+#[cfg(not(feature = "app-stack-64k"))]
 const MAIN_TASK_STACK_WORDS: u32 = 4_096; // 16 KiB
 
 extern "C" {

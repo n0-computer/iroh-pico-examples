@@ -1,0 +1,65 @@
+[package]
+name = "pico-std"
+version = "0.1.0"
+edition = "2021"
+links = "pico_std"
+
+[features]
+default = ["stdio-usb"]
+stdio-uart = []
+stdio-usb = []
+stdio-semihosting = []
+rp235x-hal = ["dep:rp235x-hal"]
+usb-smoke = []
+rtos-smoke = []
+wifi = []
+display = []
+display-psram = ["display", "psram"]
+psram = []
+psram-heap = ["psram"]
+app-stack-64k = []
+app-stack-128k = ["app-stack-64k"]
+
+[dependencies]
+embedded-hal = "1"
+# Peripheral access for the RP2350. We don't use rp235x-hal's `rt` (cortex-m-rt)
+# runtime — the Pico SDK provides crt0 and the vector table — so disable default
+# features and keep only the critical-section implementation.
+rp235x-hal = { version = "0.4", optional = true, default-features = false, features = ["critical-section-impl"] }
+
+[build-dependencies]
+cmake = "0.1.50"
+embuild = { version = "0.31.1", features = ["cmake"] }
+
+[[example]]
+name = "threads"
+crate-type = ["bin"]
+
+[[example]]
+name = "blinky"
+crate-type = ["bin"]
+required-features = ["rp235x-hal"]
+
+[[example]]
+name = "hello"
+crate-type = ["bin"]
+
+[[example]]
+name = "wifi"
+crate-type = ["bin"]
+required-features = ["wifi"]
+
+[[example]]
+name = "display"
+crate-type = ["bin"]
+required-features = ["display"]
+
+[[example]]
+name = "display-psram"
+crate-type = ["bin"]
+required-features = ["display-psram"]
+
+[[example]]
+name = "psram"
+crate-type = ["bin"]
+required-features = ["psram"]

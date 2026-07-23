@@ -3,7 +3,7 @@
 //! rustls-rustcrypto provides TLS 1.3 cipher suites but leaves `quic: None`.
 //! This module adds QUIC header protection and packet encryption for
 //! AES-128-GCM (required for QUIC initial handshake).
-//! Stripped down for ESP32: AES-128-GCM only, X25519 only — no ChaCha20, no NIST curves.
+//! Stripped down for constrained targets: AES-128-GCM and X25519 only.
 
 use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
 use aes_gcm::aead::AeadInPlace as _;
