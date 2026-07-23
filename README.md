@@ -17,11 +17,9 @@ started by the scheduler; the display examples use it explicitly for scanout.
 - The repository root is a virtual Cargo workspace.
 - `pico-std` is the platform crate. Its `examples/` directory contains
   focused hardware and runtime tests.
-- `iroh-echo-common` contains the shared iroh echo application logic.
-- `iroh-echo`, `iroh-echo-psram`, and `iroh-echo-full` are independent
-  application crates.
+- `iroh-echo-full` is the relay-enabled iroh application.
 
-The application crates depend on `pico-std` like a normal native platform
+The application depends on `pico-std` like a normal native platform
 dependency. A small application build script forwards the Pico SDK linker
 configuration exported by `pico-std`.
 
@@ -199,35 +197,13 @@ picotool reboot
 The probe also enables UART0 on GPIO 0/1 at 115200 baud as a fallback if USB
 stops during PSRAM initialization.
 
-## Iroh applications
-
-`iroh-echo` is a deliberately small LAN-only application. Relay, discovery and
-QUIC datagrams are disabled, and the transport is limited to one bidirectional
-stream with small flow-control windows.
-
-```sh
-WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p iroh-echo
-```
-
-It prints the endpoint ID and UDP port after joining Wi-Fi. Connect using that
-ID, the IPv4 address printed by the Wi-Fi setup, and the port; a bare endpoint
-ID cannot be resolved because discovery is intentionally disabled.
+## Iroh application
 
 The full application enables the default iroh relays and n0 DNS discovery,
 and uses PSRAM for the Rust/Newlib heap:
 
 ```sh
 WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p iroh-echo-full
-```
-
-The `iroh-echo` application remains direct-only and does not enable or
-require PSRAM.
-
-To isolate the larger heap from relay behavior, this variant keeps relay and
-discovery disabled while moving the Rust/Newlib heap to PSRAM:
-
-```sh
-WIFI_CONFIG='SSID:PASSWORD' cargo run --release -p iroh-echo-psram
 ```
 
 The Pico compatibility layer supplies the entropy, clock, `poll` and `eventfd`
@@ -258,7 +234,7 @@ Working on a Pimoroni Presto:
   but still needs an on-device smoke test;
 - RM2/CYW43439 Wi-Fi association and DHCP;
 - ST7701 scanout from either a repeated SRAM row or a full PSRAM framebuffer;
-- direct and relay-enabled iroh QUIC echo applications;
+- relay-enabled iroh QUIC echo application;
 - `cargo run --release` flashing through picotool.
 
 This remains a proof of concept, not a production-supported Rust target.

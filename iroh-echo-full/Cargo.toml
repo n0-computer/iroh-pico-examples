@@ -5,14 +5,29 @@ edition = "2021"
 publish = false
 build = "../iroh-app-build.rs"
 
+[features]
+default = ["relay"]
+relay = ["rustls-rustcrypto/p256"]
+
 [dependencies]
-iroh-echo-common = { path = "../iroh-echo-common", features = ["relay"] }
 pico-std = { path = "../pico-std", default-features = false, features = [
     "app-stack-128k",
     "psram-heap",
     "stdio-usb",
     "wifi",
 ] }
+aes = "0.8"
+aes-gcm = "0.10"
+iroh = { version = "1.0.2", default-features = false }
+iroh-relay = { version = "1.0.2", default-features = false }
+iroh-tickets = "1.0.0"
+n0-error = "1"
+n0-future = "0.3"
+rustls = { version = "0.23", default-features = false }
+rustls-rustcrypto = { git = "https://github.com/n0-computer/rustls-rustcrypto", branch = "feature-flag-algorithms-v0.0.2", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["io-util", "rt", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 
 [build-dependencies]
 embuild = "0.31.1"

@@ -1,10 +1,7 @@
 [workspace]
 members = [
     "pico-std",
-    "iroh-echo",
-    "iroh-echo-common",
     "iroh-echo-full",
-    "iroh-echo-psram",
 ]
 default-members = ["pico-std"]
 resolver = "2"

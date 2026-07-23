@@ -1896,20 +1896,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-echo"
-version = "0.1.0"
-dependencies = [
- "embuild",
- "iroh-echo-common",
- "pico-std",
-]
-
-[[package]]
-name = "iroh-echo-common"
+name = "iroh-echo-full"
 version = "0.1.0"
 dependencies = [
  "aes",
  "aes-gcm",
+ "embuild",
  "iroh",
  "iroh-relay",
  "iroh-tickets",
@@ -1921,24 +1913,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "iroh-echo-full"
-version = "0.1.0"
-dependencies = [
- "embuild",
- "iroh-echo-common",
- "pico-std",
-]
-
-[[package]]
-name = "iroh-echo-psram"
-version = "0.1.0"
-dependencies = [
- "embuild",
- "iroh-echo-common",
- "pico-std",
 ]
 
 [[package]]

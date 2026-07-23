@@ -14,11 +14,7 @@ use pico_std as _;
 use tracing::Level;
 use tracing_subscriber::{filter::Targets, prelude::*};
 
-mod quic_crypto_provider;
-#[cfg(feature = "relay")]
-mod insecure_verifier;
-#[cfg(feature = "relay")]
-mod std_dns_resolver;
+use crate::{insecure_verifier, quic_crypto_provider, std_dns_resolver};
 
 const ECHO_ALPN: &[u8] = b"echo/0";
 const WIFI_CONFIG: &str = match option_env!("WIFI_CONFIG") {
@@ -79,7 +75,7 @@ pub fn main(config: Config) {
     connect_wifi();
     if config.relay {
         #[cfg(not(feature = "relay"))]
-        panic!("relay support was not compiled into iroh-echo-common");
+        panic!("relay support was not compiled into iroh-echo-full");
         #[cfg(feature = "relay")]
         {
             let result = unsafe { presto_time_sync() };
