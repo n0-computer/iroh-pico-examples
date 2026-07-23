@@ -19,7 +19,7 @@ set(PICO_CYW43_SUPPORTED 1)
 # Reuse the project-local, ignored dependency cache for all Cargo profiles and
 # feature combinations. This avoids one SDK checkout per build-script hash.
 get_filename_component(PICO_STD_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../.tools" ABSOLUTE)
-set(PICO_SDK_PATH "${PICO_STD_TOOLS_DIR}/pico-sdk")
+set(PICO_SDK_PATH "${PICO_STD_TOOLS_DIR}/pico-sdk-presto")
 include(pico_sdk_import.cmake)
 
 set(FREERTOS_KERNEL_PATH "${PICO_STD_TOOLS_DIR}/FreeRTOS-Kernel")
@@ -65,6 +65,16 @@ add_library(pico-std-rust-c STATIC
 if(DEFINED ENV{CARGO_FEATURE_WIFI})
     target_sources(pico-std-rust-c PRIVATE src/wifi.c)
 endif()
+if(DEFINED ENV{CARGO_FEATURE_DISPLAY})
+    target_sources(pico-std-rust-c PRIVATE src/display.c)
+    pico_generate_pio_header(pico-std-rust-c
+        ${CMAKE_CURRENT_LIST_DIR}/src/st7701_parallel.pio)
+    pico_generate_pio_header(pico-std-rust-c
+        ${CMAKE_CURRENT_LIST_DIR}/src/st7701_timing.pio)
+endif()
+if(DEFINED ENV{CARGO_FEATURE_PSRAM})
+    target_sources(pico-std-rust-c PRIVATE src/psram.c)
+endif()
 target_include_directories(pico-std-rust-c PUBLIC esp-idf/include include)
 # The vendored ESP-IDF glue predates GCC 14, which promotes these to errors.
 # clock_gettime resolves from newlib at link time; esp_cpu_compare_and_set is
@@ -80,11 +90,23 @@ target_link_libraries(pico-std-rust-c PUBLIC
     FreeRTOS-Kernel-Heap4
 )
 
+if(DEFINED ENV{CARGO_FEATURE_DISPLAY})
+    target_link_libraries(pico-std-rust-c PUBLIC
+        hardware_dma
+        hardware_pio
+        hardware_pwm
+        hardware_spi
+        hardware_xip_cache
+        pico_multicore
+    )
+endif()
+
 if(DEFINED ENV{CARGO_FEATURE_WIFI})
     target_link_libraries(pico-std-rust-c PUBLIC
         pico_cyw43_arch_lwip_sys_freertos
     )
     target_compile_definitions(pico-std-rust-c PUBLIC
+        PICO_STD_WIFI=1
         NO_SYS=0
         LWIP_SOCKET=1
         LWIP_ERRNO_STDINCLUDE=1
@@ -99,6 +121,11 @@ target_compile_definitions(pico-std-rust-c PUBLIC
     CONFIG_PTHREAD_TASK_PRIO_DEFAULT=5
     CONFIG_PTHREAD_TASK_NAME_DEFAULT="task"
 )
+if(DEFINED ENV{CARGO_FEATURE_PSRAM_HEAP})
+    target_compile_definitions(pico-std-rust-c PUBLIC
+        PICO_STD_PSRAM_HEAP=1
+    )
+endif()
 
 # Enable stdio drivers specified by cargo features
 # (environment variables are inherited from build.rs)
@@ -153,3 +180,15 @@ pico_enable_stdio_uart(presto_usb_control 0)
 pico_enable_stdio_usb(presto_usb_control 1)
 pico_add_extra_outputs(presto_usb_control)
 add_dependencies(exe presto_usb_control)
+
+# Pure Pico SDK PSRAM probe. This deliberately excludes Rust and FreeRTOS so
+# QMI hardware bring-up can be tested independently of the custom std runtime.
+add_executable(presto_psram_control
+    src/psram_control.c
+    src/psram.c
+)
+target_link_libraries(presto_psram_control pico_stdlib)
+pico_enable_stdio_uart(presto_psram_control 1)
+pico_enable_stdio_usb(presto_psram_control 1)
+pico_add_extra_outputs(presto_psram_control)
+add_dependencies(exe presto_psram_control)

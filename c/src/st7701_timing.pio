@@ -1,0 +1,15 @@
+; Derived from Pimoroni's Presto ST7701 driver (MIT licensed).
+; Input word: VSYNC, HSYNC, delay count, then an instruction to execute.
+
+.program st7701_timing
+.side_set 1
+.origin 0
+
+.wrap_target
+  out pins, 2         side 0
+  out x, 14           side 1
+sync_loop:
+  nop                 side 0
+  jmp x--, sync_loop  side 1
+  out exec, 16        side 0
+.wrap

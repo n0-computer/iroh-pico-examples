@@ -25,12 +25,22 @@ int presto_wifi_connect(const char *ssid, const char *password)
     }
 
     cyw43_arch_enable_sta_mode();
-    printf("Connecting to Wi-Fi network: %s\n", ssid);
-    stdio_flush();
-    result = cyw43_arch_wifi_connect_timeout_ms(
-        ssid, password, CYW43_AUTH_WPA2_AES_PSK, 30000);
+    const int max_attempts = 5;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        printf("Connecting to Wi-Fi network: %s (attempt %d/%d)\n",
+               ssid, attempt, max_attempts);
+        stdio_flush();
+
+        result = cyw43_arch_wifi_connect_timeout_ms(
+            ssid, password, CYW43_AUTH_WPA2_AES_PSK, 30000);
+        if (result == 0) break;
+
+        printf("Wi-Fi connection attempt %d failed: %d\n", attempt, result);
+        stdio_flush();
+        if (attempt != max_attempts) sleep_ms(2000);
+    }
     if (result != 0) {
-        printf("Wi-Fi connection failed: %d\n", result);
+        printf("Wi-Fi connection failed after %d attempts\n", max_attempts);
         stdio_flush();
         return result;
     }

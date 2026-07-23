@@ -7,11 +7,38 @@
 #include <stdio.h>
 #include "unwind.h"
 #include "pico/time.h"
+#include "hardware/structs/m33.h"
+#include "hardware/sync.h"
 #include "hardware/timer.h"
+#include "hardware/watchdog.h"
+#include "pico/platform/sections.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
 extern char __StackLimit;
+
+void presto_global_exclusives_init(void)
+{
+    /*
+     * Match Pico SDK's normal ARMv8-M spin-lock state while bringing up QMI.
+     * We switch back to the core-local monitor once PSRAM is mapped.
+     */
+    m33_hw->actlr |= M33_ACTLR_EXTEXCLALL_BITS;
+    __dmb();
+    __isb();
+}
+
+void presto_single_core_exclusives_init(void)
+{
+    /*
+     * EXTEXCLALL routes exclusive accesses through RP2350's global monitor,
+     * which does not cover PSRAM. The scheduler and Rust heap stay on core 0,
+     * so the Cortex-M33 local exclusive monitor is the desired implementation.
+     */
+    m33_hw->actlr &= ~M33_ACTLR_EXTEXCLALL_BITS;
+    __dmb();
+    __isb();
+}
 
 static void fatal_raw(const char *message)
 {
@@ -44,6 +71,22 @@ static uint32_t fault_register(uintptr_t address)
     return *(volatile uint32_t *) address;
 }
 
+typedef struct {
+    uint32_t magic;
+    uint32_t exc_return;
+    uint32_t cfsr;
+    uint32_t hfsr;
+    uint32_t mmfar;
+    uint32_t bfar;
+    uint32_t lr;
+    uint32_t pc;
+    uint32_t xpsr;
+} saved_fault_t;
+
+#define SAVED_FAULT_MAGIC 0x46544c54u
+
+static saved_fault_t __uninitialized_ram(saved_fault);
+
 static void fault_hex(const char *label, uint32_t value)
 {
     static const char digits[] = "0123456789abcdef";
@@ -60,40 +103,49 @@ static void fault_hex(const char *label, uint32_t value)
 __attribute__((used, noreturn))
 static void hardfault_report(uint32_t *frame, uint32_t exc_return)
 {
-    /* Armv8-M Secure SCB fault registers. Other configurable faults are routed
-     * to HardFault by the Pico startup vector table, so CFSR holds the useful
-     * reason even though there is only one installed handler. */
-    uint32_t cfsr = fault_register(0xe000ed28u);
-    uint32_t hfsr = fault_register(0xe000ed2cu);
-    uint32_t mmfar = fault_register(0xe000ed34u);
-    uint32_t bfar = fault_register(0xe000ed38u);
+    saved_fault.magic = 0;
+    saved_fault.exc_return = exc_return;
+    saved_fault.cfsr = fault_register(0xe000ed28u);
+    saved_fault.hfsr = fault_register(0xe000ed2cu);
+    saved_fault.mmfar = fault_register(0xe000ed34u);
+    saved_fault.bfar = fault_register(0xe000ed38u);
+    saved_fault.lr = 0;
+    saved_fault.pc = 0;
+    saved_fault.xpsr = 0;
 
-    fatal_raw("FATAL: Cortex-M HardFault");
-    fault_hex("FAULT exc_return=", exc_return);
-    fault_hex("FAULT frame=", (uint32_t) (uintptr_t) frame);
-    fault_hex("FAULT CFSR=", cfsr);
-    fault_hex("FAULT HFSR=", hfsr);
-    fault_hex("FAULT MMFAR=", mmfar);
-    fault_hex("FAULT BFAR=", bfar);
-
-    /* Avoid causing a second fault if exception entry itself failed to stack a
-     * frame. RP2350 SRAM occupies 0x20000000..0x20082000. */
     uintptr_t frame_address = (uintptr_t) frame;
     if ((frame_address & 3u) == 0 && frame_address >= 0x20000000u &&
         frame_address <= 0x20081fe0u) {
-        fault_hex("FAULT r0=", frame[0]);
-        fault_hex("FAULT r1=", frame[1]);
-        fault_hex("FAULT r2=", frame[2]);
-        fault_hex("FAULT r3=", frame[3]);
-        fault_hex("FAULT r12=", frame[4]);
-        fault_hex("FAULT lr=", frame[5]);
-        fault_hex("FAULT pc=", frame[6]);
-        fault_hex("FAULT xpsr=", frame[7]);
-    } else {
-        stdio_puts_raw("FAULT exception frame is outside SRAM\n");
+        saved_fault.lr = frame[5];
+        saved_fault.pc = frame[6];
+        saved_fault.xpsr = frame[7];
     }
-    stdio_flush();
+
+    /* USB stdio can deadlock in exception context. Commit the record last,
+     * reboot, and report it once USB and interrupts are operational again. */
+    saved_fault.magic = SAVED_FAULT_MAGIC;
+    __dmb();
+    watchdog_reboot(0, 0, 10);
     while (true) tight_loop_contents();
+}
+
+void presto_report_saved_fault(void)
+{
+    if (saved_fault.magic != SAVED_FAULT_MAGIC) return;
+
+    saved_fault_t fault = saved_fault;
+    saved_fault.magic = 0;
+    sleep_ms(2000);
+    fatal_raw("FATAL: saved Cortex-M HardFault");
+    fault_hex("FAULT exc_return=", fault.exc_return);
+    fault_hex("FAULT CFSR=", fault.cfsr);
+    fault_hex("FAULT HFSR=", fault.hfsr);
+    fault_hex("FAULT MMFAR=", fault.mmfar);
+    fault_hex("FAULT BFAR=", fault.bfar);
+    fault_hex("FAULT lr=", fault.lr);
+    fault_hex("FAULT pc=", fault.pc);
+    fault_hex("FAULT xpsr=", fault.xpsr);
+    stdio_flush();
 }
 
 /* Select the stack active before exception entry. FreeRTOS tasks use PSP while
@@ -113,8 +165,13 @@ __attribute__((naked)) void isr_hardfault(void)
 void presto_memory_report(const char *label)
 {
     struct mallinfo info = mallinfo();
+#ifdef PICO_STD_PSRAM_HEAP
+    extern size_t presto_psram_heap_free(void);
+    ptrdiff_t unclaimed = (ptrdiff_t)presto_psram_heap_free();
+#else
     char *brk = sbrk(0);
     ptrdiff_t unclaimed = &__StackLimit - brk;
+#endif
     size_t stack_free = uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
 
     printf("MEM %s: newlib-used=%ld newlib-free-chunks=%ld "

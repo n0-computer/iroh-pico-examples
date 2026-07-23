@@ -14,6 +14,9 @@ rp235x-hal = ["dep:rp235x-hal"]
 usb-smoke = []
 rtos-smoke = []
 wifi = []
+display = []
+psram = []
+psram-heap = ["psram"]
 iroh = [
     "wifi",
     "dep:aes",
@@ -26,6 +29,8 @@ iroh = [
     "dep:tracing",
     "dep:tracing-subscriber",
 ]
+iroh-psram = ["iroh", "psram-heap"]
+iroh-full = ["iroh", "psram-heap"]
 
 [dependencies]
 embedded-hal = "1"
@@ -75,3 +80,23 @@ required-features = ["wifi"]
 name = "iroh-echo"
 crate-type = ["bin"]
 required-features = ["iroh"]
+
+[[example]]
+name = "iroh-echo-full"
+crate-type = ["bin"]
+required-features = ["iroh-full"]
+
+[[example]]
+name = "iroh-echo-psram"
+crate-type = ["bin"]
+required-features = ["iroh-psram"]
+
+[[example]]
+name = "display"
+crate-type = ["bin"]
+required-features = ["display"]
+
+[[example]]
+name = "psram"
+crate-type = ["bin"]
+required-features = ["psram"]

@@ -20,6 +20,13 @@ extern "C" {
     fn esp_pthread_init() -> c_int;
 
     fn stdio_init_all() -> bool;
+    fn presto_report_saved_fault();
+    #[cfg(feature = "psram")]
+    fn presto_global_exclusives_init();
+    fn presto_single_core_exclusives_init();
+
+    #[cfg(feature = "psram")]
+    fn presto_psram_early_init();
 
     #[cfg(feature = "usb-smoke")]
     fn usb_smoke_test() -> !;
@@ -49,7 +56,21 @@ extern "C" fn main_task_wrapper(_parameters: *mut c_void) {
 #[no_mangle]
 extern "C" fn __wrap_main() {
     unsafe {
+        #[cfg(feature = "psram")]
+        {
+            // Match Pico SDK's normal global-exclusive state while the
+            // SRAM-resident C routine takes control of QMI, then use the
+            // Cortex-M33 local monitor for single-core PSRAM atomics.
+            presto_global_exclusives_init();
+            presto_psram_early_init();
+            presto_single_core_exclusives_init();
+        }
+
+        #[cfg(not(feature = "psram"))]
+        presto_single_core_exclusives_init();
+
         stdio_init_all();
+        presto_report_saved_fault();
 
         // Diagnostic mode: prove clocks, USB CDC and Pico SDK stdio before
         // initializing pthreads or starting the FreeRTOS scheduler.

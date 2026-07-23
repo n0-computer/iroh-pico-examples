@@ -53,6 +53,12 @@
 #define PICO_RP2350_A2_SUPPORTED 1
 #endif
 
+/* Match Pimoroni's Presto firmware clock and PSRAM timing environment. */
+#define SYS_CLK_HZ 200000000
+#define PLL_SYS_VCO_FREQ_HZ 1200000000
+#define PLL_SYS_POSTDIV1 6
+#define PLL_SYS_POSTDIV2 1
+
 /* Presto does not have Pico 2's SMPS mode, VBUS or VSYS GPIO wiring. */
 
 #endif

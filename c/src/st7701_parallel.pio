@@ -1,0 +1,17 @@
+; Derived from Pimoroni's Presto ST7701 driver (MIT licensed).
+; Output RGB565 over the panel's 16-bit parallel data bus.
+
+.program st7701_parallel
+.side_set 1
+
+.wrap_target
+  mov x, y      side 1
+  wait 1 irq 4  side 1
+loop:
+  out isr, 32   side 1
+  mov pins, ::isr side 1 [1]
+  in null, 16   side 1     [1]
+  mov pins, ::isr side 1 [1]
+  jmp x-- loop  side 1
+  mov pins, null side 1
+.wrap

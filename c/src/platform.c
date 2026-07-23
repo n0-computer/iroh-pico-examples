@@ -7,7 +7,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef PICO_STD_WIFI
 #include "lwip/sockets.h"
+#endif
 #include "pico/rand.h"
 #include "pico/time.h"
 
@@ -60,6 +62,8 @@ int clock_gettime(clockid_t clock_id, struct timespec *value)
     value->tv_nsec = (long)((micros % 1000000u) * 1000u);
     return 0;
 }
+
+#ifdef PICO_STD_WIFI
 
 /* mio uses eventfd to wake its poll loop. Pico SDK has no VFS, so reserve a
  * handful of synthetic descriptors and merge them into lwIP's socket poll. */
@@ -257,6 +261,8 @@ int poll(struct pollfd *fds, nfds_t count, int timeout)
         }
     }
 }
+
+#endif /* PICO_STD_WIFI */
 
 /* There is no filesystem. These symbols are referenced by std's directory
  * iterator even though the direct-only example never opens a directory. */

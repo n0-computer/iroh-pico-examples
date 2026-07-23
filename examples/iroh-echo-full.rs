@@ -2,5 +2,5 @@
 mod iroh_echo;
 
 fn main() {
-    iroh_echo::main(false);
+    iroh_echo::main(true);
 }
