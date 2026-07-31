@@ -53,6 +53,7 @@ add_library(pico-std-rust-c STATIC
     src/io.c
     src/platform.c
     src/outputs.c
+    src/secret.c
 
     esp-idf/src/pthread.c
     esp-idf/src/pthread_cond_var.c
@@ -96,6 +97,7 @@ target_link_libraries(pico-std-rust-c PUBLIC
     pico_rand
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
+    hardware_flash
     hardware_pio
     hardware_pwm
 )

@@ -32,6 +32,27 @@ extern "C" {
     #[cfg(feature = "relay")]
     fn presto_time_sync() -> core::ffi::c_int;
     fn presto_memory_report(label: *const core::ffi::c_char);
+    fn esp_fill_random(buffer: *mut core::ffi::c_void, length: usize);
+}
+
+/// Load the endpoint secret from flash, or generate and persist one on first
+/// boot so the endpoint id stays stable across restarts. Must run before WiFi
+/// and the display start, because the first-boot flash write stalls XIP.
+fn load_or_create_secret() -> iroh::SecretKey {
+    if let Some(bytes) = pico_std::secret::load() {
+        println!("Loaded endpoint secret from flash");
+        return iroh::SecretKey::from_bytes(&bytes);
+    }
+    let mut bytes = [0u8; 32];
+    unsafe { esp_fill_random(bytes.as_mut_ptr() as *mut core::ffi::c_void, bytes.len()) };
+    match pico_std::secret::store(&bytes) {
+        Ok(()) => println!("Generated a new endpoint secret and stored it in flash"),
+        Err(code) => println!(
+            "Warning: storing the endpoint secret failed with code {code}; \
+             the endpoint id will change on restart"
+        ),
+    }
+    iroh::SecretKey::from_bytes(&bytes)
 }
 
 fn memory_report(label: &'static core::ffi::CStr) {
@@ -68,6 +89,8 @@ pub fn main(config: Config) {
         );
     }
 
+    let secret_key = load_or_create_secret();
+
     connect_wifi();
     if config.relay {
         #[cfg(not(feature = "relay"))]
@@ -94,7 +117,7 @@ pub fn main(config: Config) {
         .thread_stack_size(16 * 1024)
         .build()
         .expect("failed to create Tokio runtime");
-    runtime.block_on(run(config.relay));
+    runtime.block_on(run(config.relay, secret_key));
 }
 
 fn init_tracing() {
@@ -111,7 +134,7 @@ fn init_tracing() {
         .init();
 }
 
-async fn run(relay: bool) {
+async fn run(relay: bool, secret_key: iroh::SecretKey) {
     let transport = QuicTransportConfig::builder()
         .max_concurrent_bidi_streams(VarInt::from_u32(1))
         .max_concurrent_uni_streams(VarInt::from_u32(0))
@@ -122,6 +145,7 @@ async fn run(relay: bool) {
         .build();
 
     let mut builder = iroh::Endpoint::builder(presets::Empty)
+        .secret_key(secret_key)
         .alpns(vec![ECHO_ALPN.to_vec()])
         .crypto_provider(Arc::new(quic_crypto_provider::provider()))
         .portmapper_config(PortmapperConfig::Disabled);

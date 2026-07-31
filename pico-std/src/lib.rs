@@ -335,3 +335,29 @@ pub mod display {
         }
     }
 }
+
+pub mod secret {
+    //! Persist a 32-byte secret in the last flash sector, so identities like
+    //! the iroh endpoint id survive restarts.
+
+    extern "C" {
+        fn presto_secret_load(out: *mut u8) -> core::ffi::c_int;
+        fn presto_secret_store(secret: *const u8) -> core::ffi::c_int;
+    }
+
+    /// Read the stored secret, if one has been written.
+    pub fn load() -> Option<[u8; 32]> {
+        let mut out = [0u8; 32];
+        let result = unsafe { presto_secret_load(out.as_mut_ptr()) };
+        (result == 0).then_some(out)
+    }
+
+    /// Store a secret in the last flash sector.
+    ///
+    /// Writing flash stalls XIP, so call this before the display launches
+    /// core 1 and before WiFi starts; see `c/src/secret.c` for the details.
+    pub fn store(secret: &[u8; 32]) -> Result<(), i32> {
+        let result = unsafe { presto_secret_store(secret.as_ptr()) };
+        if result == 0 { Ok(()) } else { Err(result) }
+    }
+}
