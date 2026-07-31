@@ -1,19 +1,17 @@
 [package]
-name = "iroh-echo-full"
+name = "iroh-echo-bare"
 version = "0.1.0"
 edition = "2021"
 publish = false
 build = "../iroh-app-build.rs"
 
 [features]
-default = ["relay"]
+default = []
 relay = ["rustls-rustcrypto/p256"]
 
 [dependencies]
 pico-std = { path = "../pico-std", default-features = false, features = [
     "app-stack-128k",
-    "display-psram",
-    "psram-heap",
     "stdio-usb",
     "wifi",
 ] }

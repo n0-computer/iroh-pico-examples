@@ -12,6 +12,12 @@ Presto. It combines:
 The currently tested configuration runs FreeRTOS on ARM core 0. Core 1 is not
 started by the scheduler; the display examples use it explicitly for scanout.
 
+## Upstream repository
+
+This work was derived from:
+
+- https://github.com/tana/pico-std-rust
+
 ## Repository layout
 
 - The repository root is a virtual Cargo workspace.

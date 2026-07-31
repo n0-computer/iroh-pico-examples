@@ -14,7 +14,7 @@ usb-smoke = []
 rtos-smoke = []
 wifi = []
 display = []
-display-psram = ["display", "psram"]
+display-psram = ["display", "psram-heap", "dep:embedded-graphics"]
 psram = []
 psram-heap = ["psram"]
 app-stack-64k = []
@@ -22,6 +22,7 @@ app-stack-128k = ["app-stack-64k"]
 
 [dependencies]
 embedded-hal = "1"
+embedded-graphics = { version = "0.8.2", optional = true }
 # Peripheral access for the RP2350. We don't use rp235x-hal's `rt` (cortex-m-rt)
 # runtime — the Pico SDK provides crt0 and the vector table — so disable default
 # features and keep only the critical-section implementation.
@@ -55,9 +56,8 @@ crate-type = ["bin"]
 required-features = ["display"]
 
 [[example]]
-name = "display-psram"
+name = "outputs"
 crate-type = ["bin"]
-required-features = ["display-psram"]
 
 [[example]]
 name = "psram"

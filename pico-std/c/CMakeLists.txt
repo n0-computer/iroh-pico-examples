@@ -50,7 +50,9 @@ include(FreeRTOS_Kernel_import.cmake)
 # The esp-idf std glue (pthread / locks / 64-bit atomics) plus small shims.
 add_library(pico-std-rust-c STATIC
     src/shim.c
+    src/io.c
     src/platform.c
+    src/outputs.c
 
     esp-idf/src/pthread.c
     esp-idf/src/pthread_cond_var.c
@@ -61,6 +63,8 @@ add_library(pico-std-rust-c STATIC
     esp-idf/src/locks.c
     esp-idf/src/stdatomic.c
 )
+pico_generate_pio_header(pico-std-rust-c
+    ${CMAKE_CURRENT_LIST_DIR}/src/ws2812.pio)
 
 if(DEFINED ENV{CARGO_FEATURE_WIFI})
     target_sources(pico-std-rust-c PRIVATE src/wifi.c)
@@ -92,13 +96,13 @@ target_link_libraries(pico-std-rust-c PUBLIC
     pico_rand
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
+    hardware_pio
+    hardware_pwm
 )
 
 if(DEFINED ENV{CARGO_FEATURE_DISPLAY})
     target_link_libraries(pico-std-rust-c PUBLIC
         hardware_dma
-        hardware_pio
-        hardware_pwm
         hardware_spi
         hardware_xip_cache
         pico_multicore

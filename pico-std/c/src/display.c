@@ -34,6 +34,7 @@
 #define PSRAM_BASE 0x11000000u
 #define PSRAM_DMA_BASE \
     (XIP_NOCACHE_NOALLOC_BASE + (PSRAM_BASE - XIP_BASE))
+#define PREFETCH_LINES 8u
 
 #define LCD_D0 1u
 #define LCD_HSYNC 19u
@@ -51,7 +52,7 @@
 #define TIMING_V_FRONT (5u + TIMING_V_DISPLAY)
 #define TIMING_H_FRONT 4u
 #define TIMING_H_PULSE 16u
-#define TIMING_H_BACK 30u
+#define TIMING_H_BACK 40u
 #define TIMING_H_DISPLAY PANEL_WIDTH
 
 #define BACKLIGHT_PWM_TOP 6200u
@@ -62,11 +63,18 @@ static uint timing_sm;
 static uint parallel_offset;
 static int pixel_dma;
 static int line_dma;
+#ifdef PICO_STD_DISPLAY_PSRAM
+static int prefetch_dma;
+#endif
 
 static uint16_t timing_row;
 static uint16_t timing_phase;
 static uint16_t display_row;
-static uint16_t *const dma_framebuffer = (uint16_t *)PSRAM_DMA_BASE;
+#ifdef PICO_STD_DISPLAY_PSRAM
+static uint16_t *dma_framebuffer;
+static bool fill_framebuffer_on_start;
+static uint16_t prefetched_lines[PREFETCH_LINES][LCD_WIDTH] __attribute__((aligned(4)));
+#endif
 static uint16_t sram_control_line[LCD_WIDTH] __attribute__((aligned(4)));
 static uint16_t *volatile next_line_addr;
 
@@ -83,6 +91,42 @@ int presto_psram_init_status(void);
 
 static uint16_t *frame_line(unsigned row) {
     return dma_framebuffer + row * LCD_WIDTH;
+}
+
+static bool framebuffer_is_valid(uint16_t *framebuffer, size_t pixel_count) {
+    uintptr_t address = (uintptr_t)framebuffer;
+    uintptr_t psram_end = PSRAM_BASE + presto_psram_size();
+    return pixel_count >= LCD_WIDTH * PANEL_HEIGHT &&
+        address >= PSRAM_BASE &&
+        address <= psram_end &&
+        FRAMEBUFFER_BYTES <= psram_end - address &&
+        (address & 3u) == 0;
+}
+
+static void __not_in_flash_func(prefetch_line_blocking)(unsigned row) {
+    uint32_t *dst = (uint32_t *)prefetched_lines[row & (PREFETCH_LINES - 1u)];
+    uint32_t *src = (uint32_t *)frame_line(row);
+    for (unsigned i = 0; i < (LCD_WIDTH >> 1); ++i) {
+        dst[i] = src[i];
+    }
+}
+
+static void __not_in_flash_func(arm_prefetch_for_row)(unsigned row) {
+    if (row >= PANEL_HEIGHT) {
+        dma_channel_abort(prefetch_dma);
+        return;
+    }
+
+    if (dma_channel_is_busy(prefetch_dma)) {
+        dma_channel_abort(prefetch_dma);
+        prefetch_line_blocking(row);
+        return;
+    }
+
+    dma_channel_set_read_addr(prefetch_dma, frame_line(row), false);
+    dma_channel_set_write_addr(prefetch_dma,
+        prefetched_lines[row & (PREFETCH_LINES - 1u)], false);
+    dma_channel_set_trans_count(prefetch_dma, LCD_WIDTH >> 1, true);
 }
 #endif
 
@@ -173,9 +217,15 @@ static void __not_in_flash_func(start_line_transfer)(void) {
     hw_clear_bits(&display_pio->irq, 0x1);
     ++display_row;
 #ifdef PICO_STD_DISPLAY_PSRAM
-    next_line_addr = display_row == PANEL_HEIGHT
-        ? NULL
-        : frame_line(display_row);
+    if (display_row == PANEL_HEIGHT) {
+        next_line_addr = NULL;
+        dma_channel_abort(prefetch_dma);
+        return;
+    }
+
+    next_line_addr =
+        prefetched_lines[(display_row + 1u) & (PREFETCH_LINES - 1u)];
+    arm_prefetch_for_row(display_row + (PREFETCH_LINES - 1u));
 #else
     next_line_addr = display_row == PANEL_HEIGHT
         ? NULL
@@ -187,6 +237,7 @@ static void __not_in_flash_func(start_frame_transfer)(void) {
     hw_clear_bits(&display_pio->irq, 0x2);
     next_line_addr = NULL;
     dma_channel_abort(pixel_dma);
+    dma_channel_abort(line_dma);
     pio_sm_set_enabled(display_pio, parallel_sm, false);
     pio_sm_clear_fifos(display_pio, parallel_sm);
     pio_sm_exec_wait_blocking(display_pio, parallel_sm, pio_encode_mov(pio_osr, pio_null));
@@ -195,8 +246,12 @@ static void __not_in_flash_func(start_frame_transfer)(void) {
     pio_sm_set_enabled(display_pio, parallel_sm, true);
     display_row = 0;
 #ifdef PICO_STD_DISPLAY_PSRAM
-    next_line_addr = frame_line(0);
-    dma_channel_set_read_addr(pixel_dma, frame_line(0), true);
+    dma_channel_abort(prefetch_dma);
+    for (unsigned row = 0; row < PREFETCH_LINES; ++row) {
+        prefetch_line_blocking(row);
+    }
+    next_line_addr = prefetched_lines[1];
+    dma_channel_set_read_addr(pixel_dma, prefetched_lines[0], true);
 #else
     next_line_addr = sram_control_line;
     dma_channel_set_read_addr(pixel_dma, sram_control_line, true);
@@ -270,7 +325,11 @@ static void fill_test_pattern(void) {
 }
 
 static void display_core1(void) {
+#ifdef PICO_STD_DISPLAY_PSRAM
+    if (fill_framebuffer_on_start) fill_test_pattern();
+#else
     fill_test_pattern();
+#endif
 
     display_pio = pio1;
     parallel_sm = pio_claim_unused_sm(display_pio, true);
@@ -301,10 +360,12 @@ static void display_core1(void) {
 
     uint32_t divider = (clock_get_hz(clk_sys) + 34000000u - 1u) / 34000000u;
     // A full-resolution RGB565 scanout consumes two PSRAM bytes per pixel.
-    // Run the PSRAM variant near 47 Hz at Presto's 200 MHz clock to leave QMI
-    // and DMA more margin. The repeated-SRAM-row variant can remain near 63 Hz.
+    // Run the PSRAM variant near 31 Hz at Presto's 200 MHz clock. Slower
+    // settings caused the ST7701 to lose vertical synchronization and repeat
+    // rows, so additional QMI margin must come from buffering rather than a
+    // lower panel dot clock. The repeated-SRAM-row variant remains near 63 Hz.
 #ifdef PICO_STD_DISPLAY_PSRAM
-    if (divider < 16u) divider = 16u;
+    if (divider < 30u) divider = 30u;
 #else
     if (divider < 12u) divider = 12u;
 #endif
@@ -332,28 +393,42 @@ static void display_core1(void) {
 
     pixel_dma = dma_claim_unused_channel(true);
     line_dma = dma_claim_unused_channel(true);
+#ifdef PICO_STD_DISPLAY_PSRAM
+    prefetch_dma = dma_claim_unused_channel(true);
+#endif
     dma_channel_config dma = dma_channel_get_default_config(pixel_dma);
     channel_config_set_transfer_data_size(&dma, DMA_SIZE_32);
     channel_config_set_dreq(&dma, pio_get_dreq(display_pio, parallel_sm, true));
     channel_config_set_bswap(&dma, true);
     channel_config_set_chain_to(&dma, line_dma);
+    channel_config_set_high_priority(&dma, true);
     dma_channel_configure(pixel_dma, &dma, &display_pio->txf[parallel_sm], NULL,
                           LCD_WIDTH >> 1, false);
     dma = dma_channel_get_default_config(line_dma);
     channel_config_set_transfer_data_size(&dma, DMA_SIZE_32);
     channel_config_set_read_increment(&dma, false);
+    channel_config_set_high_priority(&dma, true);
     dma_channel_configure(line_dma, &dma,
         &dma_hw->ch[pixel_dma].al3_read_addr_trig, &next_line_addr, 1, false);
+
+#ifdef PICO_STD_DISPLAY_PSRAM
+    dma = dma_channel_get_default_config(prefetch_dma);
+    channel_config_set_transfer_data_size(&dma, DMA_SIZE_32);
+    channel_config_set_read_increment(&dma, true);
+    channel_config_set_write_increment(&dma, true);
+    channel_config_set_high_priority(&dma, true);
+    dma_channel_configure(prefetch_dma, &dma, NULL, NULL, 0, false);
+#endif
 
     panel_init();
 
     hw_set_bits(&display_pio->inte1, 0x010u << timing_sm);
     irq_set_exclusive_handler(pio_get_irq_num(display_pio, 1), timing_isr);
-    irq_set_priority(pio_get_irq_num(display_pio, 1), 0x40);
+    irq_set_priority(pio_get_irq_num(display_pio, 1), 0x80);
     irq_set_enabled(pio_get_irq_num(display_pio, 1), true);
     hw_set_bits(&display_pio->inte0, 0x300u);
     irq_set_exclusive_handler(pio_get_irq_num(display_pio, 0), line_isr);
-    irq_set_priority(pio_get_irq_num(display_pio, 0), 0x40);
+    irq_set_priority(pio_get_irq_num(display_pio, 0), 0x20);
     irq_set_enabled(pio_get_irq_num(display_pio, 0), true);
 
     display_status = 1;
@@ -361,7 +436,7 @@ static void display_core1(void) {
     while (true) tight_loop_contents();
 }
 
-int presto_display_start_test_pattern(void) {
+static int start_display(void) {
     if (display_status != 0) return display_status > 0 ? 0 : display_status;
     display_status = -1;
 #ifdef PICO_STD_DISPLAY_PSRAM
@@ -388,3 +463,37 @@ int presto_display_start_test_pattern(void) {
 #endif
     return display_status > 0 ? 0 : display_status;
 }
+
+int presto_display_start_test_pattern(void) {
+#ifdef PICO_STD_DISPLAY_PSRAM
+    dma_framebuffer = (uint16_t *)PSRAM_DMA_BASE;
+    fill_framebuffer_on_start = true;
+#endif
+    return start_display();
+}
+
+#ifdef PICO_STD_DISPLAY_PSRAM
+int presto_display_start_framebuffer(uint16_t *framebuffer, size_t pixel_count) {
+    if (!framebuffer_is_valid(framebuffer, pixel_count)) {
+        return -3;
+    }
+    uintptr_t address = (uintptr_t)framebuffer;
+
+    /*
+     * Newlib returns the cached PSRAM alias. Commit its initial contents
+     * before DMA starts, then scan and update the buffer through the
+     * non-caching/non-allocating alias.
+     */
+    xip_cache_clean_all();
+    dma_framebuffer = (uint16_t *)
+        (XIP_NOCACHE_NOALLOC_BASE + (address - XIP_BASE));
+    fill_framebuffer_on_start = false;
+    return start_display();
+}
+
+int presto_display_present_framebuffer(uint16_t *framebuffer, size_t pixel_count) {
+    (void)framebuffer;
+    (void)pixel_count;
+    return display_status > 0 ? 0 : -2;
+}
+#endif

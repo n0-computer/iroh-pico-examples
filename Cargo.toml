@@ -2,6 +2,7 @@
 members = [
     "pico-std",
     "iroh-echo-full",
+    "iroh-echo-bare",
 ]
 default-members = ["pico-std"]
 resolver = "2"
@@ -11,3 +12,10 @@ opt-level = "z"
 
 [profile.release]
 opt-level = "s"
+lto = true
+codegen-units = 1
+
+[patch.crates-io]
+iroh = { git = "https://github.com/n0-computer/iroh", branch = "esp32-no-spiram" }
+iroh-relay = { git = "https://github.com/n0-computer/iroh", branch = "esp32-no-spiram" }
+iroh-base = { git = "https://github.com/n0-computer/iroh", branch = "esp32-no-spiram" }
