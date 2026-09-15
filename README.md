@@ -24,6 +24,7 @@ This work was derived from:
 - `pico-std` is the platform crate. Its `examples/` directory contains
   focused hardware and runtime tests.
 - `iroh-echo-full` is the relay-enabled iroh application.
+- `iroh-echo-bare` is a minimal bare-bones iroh app for the same platform.
 
 The application depends on `pico-std` like a normal native platform
 dependency. A small application build script forwards the Pico SDK linker
@@ -44,11 +45,11 @@ installs `rust-src` through rustup.
 
 ### Complete Arm GNU toolchain
 
-This project needs the **complete Arm GNU Toolchain for `arm-none-eabi`**,
+This project needs the complete Arm GNU Toolchain for `arm-none-eabi`,
 including Newlib. Homebrew's compiler-only `arm-none-eabi-gcc` installation is
 not sufficient.
 
-Download Arm GNU Toolchain **15.2.Rel1** from Arm's download page. On Apple
+Download Arm GNU Toolchain 15.2.Rel1 from Arm's download page. On Apple
 Silicon the archive is named:
 
 ```text
@@ -141,11 +142,13 @@ The panel has no useful onboard framebuffer and must receive a continuous RGB
 scanout. This known-working control uses no PSRAM: core 1 repeats one
 480-pixel RGB565 row from internal SRAM while FreeRTOS/std remains on core 0.
 
-The separate full-frame test initializes PSRAM before Rust and scans a
-480x480 RGB565 framebuffer from it:
+The full-frame test initializes PSRAM before Rust and scans a 480x480 RGB565
+framebuffer from it. In the current workspace this is the same `psram` example,
+with the heap variant enabled by the `psram-heap` feature:
 
 ```sh
-cargo run --release -p pico-std --example display-psram --features display-psram
+cargo run --release -p pico-std --example psram --features psram
+cargo run --release -p pico-std --example psram --features psram-heap
 ```
 
 ## PSRAM probe
@@ -165,11 +168,7 @@ call flash-resident 64-bit division helpers while reconfiguring QMI.
 `psram-heap` additionally moves Newlib's heap—and therefore Rust `std`
 allocations—to PSRAM. FreeRTOS's Heap4 arena, task stacks and scheduler objects
 remain in internal SRAM. PSRAM-backed iroh builds expand Heap4 to 256 KiB and
-give the main task a 128 KiB stack for TLS/HTTPS processing:
-
-```sh
-cargo run --release -p pico-std --example psram --features psram-heap
-```
+give the main task a 128 KiB stack for TLS/HTTPS processing.
 
 ## Diagnostics
 
@@ -183,7 +182,7 @@ cargo run --release -p pico-std --example hello --features rtos-smoke
 
 - `usb-smoke` initializes USB and loops without starting FreeRTOS.
 - `rtos-smoke` reports newlib/pthread/task/scheduler bring-up one stage at a
-  time.
+time.
 
 The CMake build also produces a pure Pico SDK `presto_usb_control` image as a
 link/startup control. Cargo never flashes that image automatically.
